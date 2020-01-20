@@ -110,6 +110,14 @@ def get_feature(G, method='GFPC'):
     
     return global_features + node_features
 
+def get_similarity(G1, G2, method='GFPC'):
+	p = get_feature(G1, method=method).tolist()
+	q = get_feature(G2, method=method).tolist()
+	CD = 0
+	for pi, qi in zip(p. q):
+		CD += abs(pi - qi) / (abs(pi) + abs(qi))
+	return 1 - CD / len(p)
+
 if __name__ == '__main__':    
 
     dataset_name = 'BlogCatalog'
