@@ -224,11 +224,32 @@ def mle_k(dataset_name, target_model, task='classification', method='mle', sampl
         K = utils.K(len(ps))
         gp = utils.GaussianProcessRegressor(K)
     getting_sampled_result_time = 0.0
+
+    sim = []
+    if method == 'mle_redispatch':
+        o_wne = get_wne(dataset_name, '', method=method, cache=True)
+        for t in range(sampled_number):
+            wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+            sim.append(get_graph_feature.calc_similarity(o_wne, wne))
+        total = sum(sim)
+        sim = [x / total for x in sim]
+        times = [int(sampled_number * k * x) for x in sim]
+        rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
+        rank = np.argsort(np.array(rem))
+        for x in rank[-(sampled_number * k - sum(times)):]:
+            times[x] += 1
+        assert sum(times) == sampled_number * k
+
     for t in range(sampled_number):
         b_t = time.time()
         i = t
         wne = get_wne(dataset_name, 'sampled/s{}'.format(i), method=method, cache=True)
-        for v in range(k):
+        if method == 'mle_redispatch':
+            loop = times[i]
+        else:
+            loop = k
+
+        for v in range(loop):
             kargs = params.random_args(ps)
             res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(i))
             if without_wne:
@@ -408,6 +429,8 @@ def main(args):
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
             elif m == 'mle_w':
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=True, k=5, s=10, debug=True)
+            elif m == 'mle_redispatch':
+                X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
             elif m == 'random_search':
                 X, y, info = random_search(dataset_name, target_model, task, k=10, debug=True, sampled_dir=sampled_dir)
             elif m == 'random_search_l':

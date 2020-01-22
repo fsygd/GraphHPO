@@ -1,8 +1,8 @@
 import os
 import utils
+import networkx as nx
 import numpy as np
 from scipy import stats
-import networkx as nx
 
 def count_thv(graph):
     thv = []
@@ -76,7 +76,7 @@ def get_feature(G, method='GFPC'):
     global_features.append(num_components)
 
     print('global feature dim: {}'.format(len(global_features)))
-    if method == 'mle_GFPC':
+    if method == 'mle_GFPC' or method == 'mle_redispatch':
         return global_features
 
     centrality = nx.eigenvector_centrality(G)
@@ -110,13 +110,18 @@ def get_feature(G, method='GFPC'):
     
     return global_features + node_features
 
-def get_similarity(G1, G2, method='GFPC'):
-	p = get_feature(G1, method=method).tolist()
-	q = get_feature(G2, method=method).tolist()
+def calc_similarity(p, q, method='GFPC'):
+	p = p.tolist()
+	q = q.tolist()
 	CD = 0
-	for pi, qi in zip(p. q):
+	for pi, qi in zip(p, q):
 		CD += abs(pi - qi) / (abs(pi) + abs(qi))
 	return 1 - CD / len(p)
+
+def get_similarity(G1, G2, method='GFPC'):
+	p = get_feature(G1, method=method)
+	q = get_feature(G2, method=method)
+	return cal_similarity(p, q)
 
 if __name__ == '__main__':    
 
