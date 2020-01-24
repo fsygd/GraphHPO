@@ -210,6 +210,44 @@ def _get_mle_result(gp, dataset_name, target_model, task, without_wne, params, p
         X_b_t = X_b
     return X_b_t, res_t
 
+def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, without_wne=False, k=5, print_iter=10, debug=True):
+    X = []
+    NP = []
+    y = []
+    params = utils.Params(target_model)
+    ps = params.arg_names
+    info = []
+    X_t, res_t = None, -1.0
+
+    sim = []
+    if method == 'dds':
+        o_wne = get_wne(dataset_name, '', method=method, cache=True)
+        for t in range(sampled_number):
+            wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+            sim.append(get_graph_feature.calc_similarity(o_wne, wne))
+        total = sum(sim)
+        sim = [x / total for x in sim]
+        times = [int(sampled_number * k * x) for x in sim]
+        rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
+        rank = np.argsort(np.array(rem))
+        for x in rank[-(sampled_number * k - sum(times)):]:
+            times[x] += 1
+        assert sum(times) == sampled_number * k
+    
+    for t in range(sampled_number):
+        wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+        for v in range(times[t]):
+            kargs = params.random_args(ps)
+            res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
+            if without_wne:
+                X.append([kargs[p] for p in ps])
+            else:
+                X.append([kargs[p] for p in ps])
+                NP.append(wne)
+            if debug:
+                print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, k, [kargs[p] for p in ps], res))
+            y.append(res)
+
 def mle_k(dataset_name, target_model, task='classification', method='mle', sampled_number=10, without_wne=False, k=16, s=0, print_iter=10, debug=False):
     X = []
     y = []
@@ -431,6 +469,8 @@ def main(args):
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=True, k=5, s=10, debug=True)
             elif m == 'mle_redispatch':
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
+            elif m == 'dds':
+                X, y, info = dds_k(dataset_name, target_model, task, method=m, debug=True)
             elif m == 'random_search':
                 X, y, info = random_search(dataset_name, target_model, task, k=10, debug=True, sampled_dir=sampled_dir)
             elif m == 'random_search_l':

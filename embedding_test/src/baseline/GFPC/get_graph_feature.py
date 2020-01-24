@@ -76,7 +76,7 @@ def get_feature(G, method='GFPC'):
     global_features.append(num_components)
 
     print('global feature dim: {}'.format(len(global_features)))
-    if method == 'mle_GFPC' or method == 'mle_redispatch':
+    if method in ['mle_GFPC', 'mle_redispatch', 'dds']:
         return global_features
 
     centrality = nx.eigenvector_centrality(G)

@@ -7,6 +7,7 @@ import scipy.sparse as sp
 
 import networkx as nx
 import numpy as np
+import tensorflow as tf
 from sklearn.cluster import SpectralClustering
 from sklearn import gaussian_process
 from scipy.optimize import minimize
@@ -221,6 +222,66 @@ class GaussianProcessRegressor(object):
 
     def predict(self, ps, p_bound, type_, w=None):
         return find_b_opt_max(self.gp, ps, p_bound, type_, w)
+
+class DWRRegressor(object):
+    def __init__(self):
+        pass
+
+    def _global_balancing(self, X_in, NP_in, learning_rate, num_steps, tol):
+        n, p = X_in.shape
+        n_np, p_np = NP_in.shape
+        display_step = 1000
+
+        X = tf.placeholder("float", [None, p])
+        NP = tf.placeholder("float", [None, p_np])
+        G = tf.Variable(tf.ones([n, 1]))
+
+        loss_balancing = tf.constant(0, tf.float32)
+        for j in range(1, p + 1):
+            X_j_and_NP = tf.concat([tf.slice(X, [j * n, 0], [n, p]), NP], 1)
+            T = tf.slice(X, [0, j - 1], [n, 1])
+            balancing_j = tf.divide(tf.matmul(tf.transpose(G * G), tf.matmul(T, tf.cast(np.ones((1, p)), tf.float32)) * X_j_and_NP), tf.constant(n, tf.float32)) - tf.divide(tf.matmul(tf.transpose(G * G), T), tf.reduce_sum(G * G)) * tf.divide(tf.matmul(tf.transpose(G * G), X_j_and_NP), tf.constant(n, tf.float32))
+            loss_balancing += tf.norm(balancing_j, ord=2)
+
+        loss_weight_sum = (tf.reduce_sum(G * G) ** 2)
+        loss_weight_l2 = tf.reduce_sum((G * G) ** 2)
+        
+        loss = 2000.0 / p * loss_balancing + 0.0005 * loss_weight_sum + 0.00005 * loss_weight_l2
+
+        optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(loss)
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+
+        X_feed = X_in
+        for j in range(p):
+            X_j = np.copy(X_in)
+            X_j[:, j] = 0
+            X_feed = np.vstack((X_feed, X_j))
+
+        l_pre = 0
+        for i in range(1, num_steps + 1):
+            _, l, l_balancing, l_weight_sum, l_weight_l2 = sess.run([optimizer, loss, loss_balancing, loss_weight_sum, loss_weight_l2], feed_dict={X: X_feed, NP: NP_in})
+            if abs(l - l_pre) <= tol:
+                print('Converge ... Step %i: Minibatch Loss: %f ... %f ... %f ... %f' % (i, l, l_balancing, l_weight_sum, l_weight_l2))
+                break
+            l_pre = l
+            if i % display_step == 0 or i == 1:
+                print('Converge ... Step %i: Minibatch Loss: %f ... %f ... %f ... %f' % (i, l, l_balancing, l_weight_sum, l_weight_l2))
+
+        weight = sess.run([G * G])
+
+        return weight[0]
+
+    def fit(self, X_in, NP_in, y_in):
+        learning_rate = 0.005; num_steps = 5000; tol = 1e-8
+        tf.reset_default_graph()
+        weight = _global_balancing(X_in, NP_in, learning_rate, num_steps, tol)
+    
+        print('fit finished')
+        # learning_rate = 0.001; num_steps = 3000; tol = 1e-8
+        # tf.reset_default_graph()
+        # RMSE, beta_hat = 
 
 class meta_learner(BayesianOptimization):
     def set_kernel(kernel):
