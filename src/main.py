@@ -210,7 +210,7 @@ def _get_mle_result(gp, dataset_name, target_model, task, without_wne, params, p
         X_b_t = X_b
     return X_b_t, res_t
 
-def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, without_wne=False, k=5, print_iter=10, debug=True):
+def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, without_wne=False, k=5, s=10, print_iter=10, debug=True):
     X = []
     NP = []
     y = []
@@ -247,6 +247,13 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
             if debug:
                 print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, k, [kargs[p] for p in ps], res))
             y.append(res)
+    
+    dwr = utils.DWRRegressor(params.bound, o_wne)
+
+    for t in range(s):
+        dwr.fit(X, NP, y)
+        while True:
+            pass
 
 def mle_k(dataset_name, target_model, task='classification', method='mle', sampled_number=10, without_wne=False, k=16, s=0, print_iter=10, debug=False):
     X = []
@@ -470,7 +477,7 @@ def main(args):
             elif m == 'mle_redispatch':
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
             elif m == 'dds':
-                X, y, info = dds_k(dataset_name, target_model, task, method=m, debug=True)
+                X, y, info = dds_k(dataset_name, target_model, task, method=m, sampled_number=10, k=10, debug=True)
             elif m == 'random_search':
                 X, y, info = random_search(dataset_name, target_model, task, k=10, debug=True, sampled_dir=sampled_dir)
             elif m == 'random_search_l':
