@@ -10,3 +10,4 @@ embedding_test/src/baseline/gcn/gcn.egg-info
 *.swp
 *~
 *.log
+*.txt

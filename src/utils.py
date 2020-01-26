@@ -342,7 +342,7 @@ class DWRRegressor(object):
 
         learning_rate = 0.005; num_steps = 5000; tol = 1e-8
         tf.reset_default_graph()
-        weight = self._global_balancing_conditional_on_network_properties(X_in, NP_in, learning_rate, num_steps, tol)
+        self.weight = self._global_balancing_conditional_on_network_properties(X_in, NP_in, learning_rate, num_steps, tol)
     
         print('fit finished')
         # learning_rate = 0.001; num_steps = 3000; tol = 1e-8

@@ -252,6 +252,9 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
 
     for t in range(s):
         dwr.fit(X, NP, y)
+        with open('weights.txt', 'w') as fout:
+            np.set_printoptions(threshold=np.inf)
+            print(dwr.weight, file=fout)
         while True:
             pass
 
@@ -477,7 +480,7 @@ def main(args):
             elif m == 'mle_redispatch':
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
             elif m == 'dds':
-                X, y, info = dds_k(dataset_name, target_model, task, method=m, sampled_number=10, k=10, debug=True)
+                X, y, info = dds_k(dataset_name, target_model, task, method=m, sampled_number=5, k=5, debug=True)
             elif m == 'random_search':
                 X, y, info = random_search(dataset_name, target_model, task, k=10, debug=True, sampled_dir=sampled_dir)
             elif m == 'random_search_l':
