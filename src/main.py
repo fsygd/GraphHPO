@@ -245,16 +245,25 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
                 X.append([kargs[p] for p in ps])
                 NP.append(wne)
             if debug:
-                print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, k, [kargs[p] for p in ps], res))
+                print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, times[t], [kargs[p] for p in ps], res))
             y.append(res)
     
     dwr = utils.DWRRegressor(params.bound, o_wne)
 
+    np.set_printoptions(threshold=np.inf)
+    with open('our_X.txt', 'w') as fout:
+        print(X, file=fout)
+
+    with open('our_NP.txt', 'w') as fout:
+        print(NP, file=fout)
+
+    with open('our_y.txt', 'w') as fout:
+        print(y, file=fout)
+
     for t in range(s):
-        dwr.fit(X, NP, y)
-        with open('weights.txt', 'w') as fout:
-            np.set_printoptions(threshold=np.inf)
-            print(dwr.weight, file=fout)
+        dwr.fit_weight(X, NP, y)
+
+        dwr.fit_MLP(X, NP, y)
         while True:
             pass
 
