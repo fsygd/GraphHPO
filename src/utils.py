@@ -231,34 +231,57 @@ class DWRRegressor(object):
         self.NP_lowerbound = [0] * len(NP_bound)
         self.NP_gap = NP_bound
         self.NP_gap[3] = 1.
+        self.p = len(X_bound)
+        self.p_np = len(NP_bound)
+
+    def build_graph(self, n, lr1, lr2):
+        p = self.p
+        p_np = self.p_np
+
+        # for global balancing
+
+        self.balance_X = tf.placeholder(tf.float32, [None, p], 'balance_X')
+        self.balance_NP = tf.placeholder(tf.float32, [None, p_np], 'balance_NP')
+        self.balance_G = tf.Variable(tf.ones([n, 1]))
+        
+        with tf.variable_scope("global_balancing", reuse=tf.AUTO_REUSE):
+            self.loss_balancing = tf.constant(0, tf.float32)
+            for j in range(1, p + 1):
+                X_j_and_NP = tf.concat([tf.slice(self.balance_X, [j * n, 0], [n, p]), self.balance_NP], 1)
+                T = tf.slice(self.balance_X, [0, j - 1], [n, 1])
+                balancing_j = tf.divide(tf.matmul(tf.transpose(self.balance_G * self.balance_G),tf.matmul(T, tf.cast(np.ones((1, p + p_np)), tf.float32)) * X_j_and_NP), tf.constant(n, tf.float32)) - tf.divide(tf.matmul(tf.transpose(self.balance_G * self.balance_G), T), tf.reduce_sum(self.balance_G * self.balance_G)) * tf.divide(tf.matmul(tf.transpose(self.balance_G * self.balance_G), X_j_and_NP), tf.constant(n, tf.float32))
+                self.loss_balancing += tf.norm(balancing_j, ord=2)
+            
+            self.loss_weight_sum = (tf.reduce_sum(self.balance_G * self.balance_G) - n) ** 2
+            self.loss_weight_l2 = tf.reduce_sum((self.balance_G * self.balance_G) ** 2)
+            
+            self.balance_loss = 2000.0 / p * self.loss_balancing + 0.0005 * self.loss_weight_sum + 0.00005 * self.loss_weight_l2
+            self.balance_optimizer = tf.train.RMSPropOptimizer(lr1).minimize(self.balance_loss)
+
+        # for weighted regression
+
+        self.reg_X = tf.placeholder(tf.float32, [None, p + p_np], 'reg_X')
+        self.reg_Y = tf.placeholder(tf.float32, [None], 'reg_Y')
+        self.reg_W = tf.placeholder(tf.float32, [None, 1], 'reg_W')
+
+        with tf.variable_scope('weighted_regression', reuse=tf.AUTO_REUSE):
+            self.MLP = tf.layers.dense(self.reg_X, 5, kernel_initializer=tf.contrib.layers.xavier_initializer(), name='mlp')
+            with tf.variable_scope('mlp', reuse=True):
+                self.reg_importance = tf.get_variable('kernel')
+
+            self.relu = tf.nn.relu(self.MLP)
+            self.hypothesis = tf.layers.dense(self.relu, 1, kernel_initializer=tf.contrib.layers.xavier_initializer(), name='fc')
+
+            self.reg_loss = tf.divide(tf.reduce_sum(self.reg_W * (self.reg_Y - self.hypothesis) ** 2), tf.reduce_sum(self.reg_W))
+            self.reg_optimizer = tf.train.RMSPropOptimizer(lr2).minimize(self.reg_loss)
+        
+        self.saver = tf.train.Saver()
+        print('build finished')
     
-    def _global_balancing_conditional_on_network_properties(self, X_in, NP_in, learning_rate, num_steps, tol):
-        n, p = X_in.shape
-        n_np, p_np = NP_in.shape
-
+    def _global_balancing(self, sess, X_in, NP_in, num_steps, tol):
         display_step = 1000
-
-        X = tf.placeholder("float", [None, p])
-        NP = tf.placeholder("float", [None, p_np])
-        G = tf.Variable(tf.ones([n, 1]))
+        p = self.p
         
-        loss_balancing = tf.constant(0, tf.float32)
-        for j in range(1, p + 1):
-            X_j_and_NP = tf.concat([tf.slice(X, [j * n, 0], [n, p]), NP], 1)
-            T = tf.slice(X, [0, j - 1], [n, 1])
-            balancing_j = tf.divide(tf.matmul(tf.transpose(G * G),tf.matmul(T, tf.cast(np.ones((1, p + p_np)), tf.float32)) * X_j_and_NP), tf.constant(n, tf.float32)) - tf.divide(tf.matmul(tf.transpose(G * G), T), tf.reduce_sum(G * G)) * tf.divide(tf.matmul(tf.transpose(G * G), X_j_and_NP), tf.constant(n, tf.float32))
-            loss_balancing += tf.norm(balancing_j, ord=2)
-        
-        loss_weight_sum = (tf.reduce_sum(G * G) - n) ** 2
-        loss_weight_l2 = tf.reduce_sum((G * G) ** 2)
-        
-        loss = 2000.0 / p * loss_balancing + 0.0005 * loss_weight_sum + 0.00005 * loss_weight_l2
-
-        optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(loss)
-        
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
-
         X_feed = X_in
         for j in range(p):
             X_j = np.copy(X_in)
@@ -267,7 +290,20 @@ class DWRRegressor(object):
         
         l_pre = 0
         for i in range(1, num_steps+1):
-            _, l, l_balancing, l_weight_sum, l_weight_l2 = sess.run([optimizer, loss, loss_balancing, loss_weight_sum, loss_weight_l2], feed_dict={X: X_feed, NP:NP_in})
+            _, l, l_balancing, l_weight_sum, l_weight_l2 = sess.run(
+                [
+                    self.balance_optimizer,
+                    self.balance_loss,
+                    self.loss_balancing,
+                    self.loss_weight_sum,
+                    self.loss_weight_l2,
+                ],
+                feed_dict={
+                    self.balance_X: X_feed,
+                    self.balance_NP: NP_in
+                }
+            )
+
             if abs(l-l_pre) <= tol:
                 print('Converge ... Step %i: Minibatch Loss: %f ... %f ... %f ... %f' % (i, l, l_balancing, l_weight_sum, l_weight_l2))
                 break
@@ -275,49 +311,11 @@ class DWRRegressor(object):
             if i % display_step == 0 or i == 1:
                 print('Converge ... Step %i: Minibatch Loss: %f ... %f ... %f ... %f' % (i, l, l_balancing, l_weight_sum, l_weight_l2))
                 
-        Weight = sess.run([G * G])
+        Weight = sess.run([self.balance_G * self.balance_G])
         
         return  Weight[0]
-
-    def _weighted_regression(self, X_in, y_in, weight_in, learning_rate, num_steps, tol):
-        n, p = X_in.shape
-        
-        display_step = 1000
-
-        X = tf.placeholder(tf.float32, [None, p], 'X')
-        Y = tf.placeholder(tf.float32, [None], 'Y')
-        W = tf.placeholder(tf.float32, [None, 1], 'W')
-
-        self.MLP = tf.layers.dense(X, 5, kernel_initializer=tf.contrib.layers.xavier_initializer(), name='mlp')
-        with tf.variable_scope('mlp', reuse=True):
-            importance = tf.get_variable('kernel')
-        self.relu = tf.nn.relu(self.MLP)
-        self.hypothesis = tf.layers.dense(self.relu, 1, kernel_initializer=tf.contrib.layers.xavier_initializer(), name='fc')
-
-        sess = tf.Session()
-
-        loss = tf.divide(tf.reduce_sum(W * (Y - self.hypothesis) ** 2), tf.reduce_sum(W))
-
-        optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(loss)
-
-        sess.run(tf.global_variables_initializer())
-
-        l_pre = 0
-        
-        for i in range(1, num_steps + 1):
-            _, l = sess.run([optimizer, loss], feed_dict={X: X_in, W: weight_in, Y: y_in})
-            if abs(l - l_pre) <= tol:
-                print('Converge ... Step %i: Minibatch Loss: %f' % (i, l))
-                break
-            l_pre = l
-            if i % display_step == 0 or i == 1:
-                print('Converge ... Step %i: Minibatch Loss: %f' % (i, l))
-            
-        print('weighted regression finished')
-
-        return sess.run(importance)
-
-    def fit_weight(self, X_in, NP_in, y_in):
+    
+    def fit_weight(self, sess, X_in, NP_in, y_in):
         start_time = time.time()
         if not isinstance(X_in, np.ndarray):
             X_in = np.asarray(X_in)
@@ -331,13 +329,57 @@ class DWRRegressor(object):
         X_in = X_in * 4 - 2
         NP_in = NP_in * 4 - 2
 
-        learning_rate = 0.005; num_steps = 5000; tol = 1e-8
-        tf.reset_default_graph()
-        self.weight = self._global_balancing_conditional_on_network_properties(X_in, NP_in, learning_rate, num_steps, tol)
+        num_steps = 20000; tol = 1e-8
+        self.weight = self._global_balancing(sess, X_in, NP_in, num_steps, tol)
     
         print('fit weight finished, time: {}s'.format(time.time() - start_time))
 
-    def fit_MLP(self, X_in, NP_in, y_in):
+    def _weighted_regression(self, sess, is_train, X_in, y_in=None, num_steps=None, tol=None):
+        display_step = 1000
+
+        if is_train:
+            l_pre = 0
+        
+            for i in range(1, num_steps + 1):
+                _, l = sess.run(
+                    [
+                        self.reg_optimizer,
+                        self.reg_loss,
+                    ],
+                    feed_dict={
+                        self.reg_X: X_in,
+                        self.reg_W: self.weight,
+                        self.reg_Y: y_in
+                    }
+                )
+
+                if abs(l - l_pre) <= tol:
+                    print('Converge ... Step %i: Minibatch Loss: %f' % (i, l))
+                    break
+                l_pre = l
+                if i % display_step == 0 or i == 1:
+                    print('Converge ... Step %i: Minibatch Loss: %f' % (i, l))
+
+            if not os.path.exists('./models'):
+                os.makedirs('./models')
+            self.saver.save(sess, 'models/weighted_regression.ckpt')
+            print('weighted regression finished')
+        else:
+            # saver.restore(sess, 'models/weighted_regression.ckpt')
+            pass
+
+        return sess.run(
+            [
+                self.reg_importance,
+                self.hypothesis,
+            ],
+            feed_dict={
+                self.reg_X: X_in,
+                self.reg_W: self.weight
+            }
+        )
+
+    def fit_MLP(self, sess, X_in, NP_in, y_in):
         start_time = time.time()
         if not isinstance(X_in, np.ndarray):
             X_in = np.asarray(X_in)
@@ -353,10 +395,27 @@ class DWRRegressor(object):
 
         X_in = np.hstack((X_in, NP_in))
         
-        learning_rate = 0.001; num_steps = 3000; tol = 1e-8
-        tf.reset_default_graph()
-        self.importance = self._weighted_regression(X_in, y_in, self.weight, learning_rate, num_steps, tol)
+        num_steps = 3000; tol = 1e-8
+        self.importance, _ = self._weighted_regression(sess, True, X_in, y_in, num_steps, tol)
         print('fit MLP finished, time: {}s'.format(time.time() - start_time))
+
+    def inference(self, sess, X_in, NP_in):
+        start_time = time.time()
+        if not isinstance(X_in, np.ndarray):
+            X_in = np.asarray(X_in)
+        if not isinstance(NP_in, np.ndarray):
+            NP_in = np.asarray(NP_in)
+
+        X_in = (X_in - self.X_lowerbound) / self.X_gap
+        NP_in = (NP_in - self.NP_lowerbound) / self.NP_gap
+        X_in = X_in * 4 - 2
+        NP_in = NP_in * 4 - 2
+
+        X_in = np.hstack((X_in, NP_in))
+
+        _, hypothesis = self._weighted_regression(sess, False, X_in)
+
+        return hypothesis
 
 class meta_learner(BayesianOptimization):
     def set_kernel(kernel):
@@ -423,6 +482,8 @@ class Params(object):
         return res
 
     def convert_dict(self, d, ps=None):
+        if ps is None:
+            ps = self.arg_names
         for p in ps:
             x = np.clip(d[p], self.bound[self.ind[p]][0], self.bound[self.ind[p]][1])
             t = self.type_[self.ind[p]]

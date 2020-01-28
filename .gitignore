@@ -5,9 +5,11 @@ logs/
 embedding_test/src/baseline/gcn/build
 embedding_test/src/baseline/gcn/dist
 embedding_test/src/baseline/gcn/gcn.egg-info
+models/
 
 *.pyc
 *.swp
 *~
 *.log
 *.txt
+*.bin

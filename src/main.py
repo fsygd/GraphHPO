@@ -4,8 +4,10 @@ import itertools
 import time
 import copy
 import functools
+import pickle
 
 import numpy as np
+import tensorflow as tf
 import networkx as nx
 import matplotlib
 matplotlib.use('Agg')
@@ -219,53 +221,118 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
     info = []
     X_t, res_t = None, -1.0
 
-    sim = []
-    if method == 'dds':
-        o_wne = get_wne(dataset_name, '', method=method, cache=True)
-        for t in range(sampled_number):
-            wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
-            sim.append(get_graph_feature.calc_similarity(o_wne, wne))
-        total = sum(sim)
-        sim = [x / total for x in sim]
-        times = [int(sampled_number * k * x) for x in sim]
-        rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
-        rank = np.argsort(np.array(rem))
-        for x in rank[-(sampled_number * k - sum(times)):]:
-            times[x] += 1
-        assert sum(times) == sampled_number * k
+    # sim = []
+    # if method == 'dds':
+    #     o_wne = get_wne(dataset_name, '', method=method, cache=True)
+    #     for t in range(sampled_number):
+    #         wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+    #         sim.append(get_graph_feature.calc_similarity(o_wne, wne))
+    #     total = sum(sim)
+    #     sim = [x / total for x in sim]
+    #     times = [int(sampled_number * k * x) for x in sim]
+    #     rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
+    #     rank = np.argsort(np.array(rem))
+    #     for x in rank[-(sampled_number * k - sum(times)):]:
+    #         times[x] += 1
+    #     assert sum(times) == sampled_number * k
     
-    for t in range(sampled_number):
-        wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
-        for v in range(times[t]):
-            kargs = params.random_args(ps)
-            res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
-            if without_wne:
-                X.append([kargs[p] for p in ps])
-            else:
-                X.append([kargs[p] for p in ps])
-                NP.append(wne)
-            if debug:
-                print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, times[t], [kargs[p] for p in ps], res))
-            y.append(res)
+    # for t in range(sampled_number):
+    #     wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+    #     for v in range(times[t]):
+    #         kargs = params.random_args(ps)
+    #         res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
+    #         if without_wne:
+    #             X.append([kargs[p] for p in ps])
+    #         else:
+    #             X.append([kargs[p] for p in ps])
+    #             NP.append(wne)
+    #         if debug:
+    #             print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, times[t], [kargs[p] for p in ps], res))
+    #         y.append(res)
     
+    o_wne = get_wne(dataset_name, '', method=method, cache=True)
     dwr = utils.DWRRegressor(params.bound, o_wne)
 
     np.set_printoptions(threshold=np.inf)
-    with open('our_X.txt', 'w') as fout:
-        print(X, file=fout)
+    # with open('our_X.bin', 'wb') as fout:
+    #     pickle.dump(X, fout)
 
-    with open('our_NP.txt', 'w') as fout:
-        print(NP, file=fout)
+    # with open('our_NP.bin', 'wb') as fout:
+    #     pickle.dump(NP, fout)
 
-    with open('our_y.txt', 'w') as fout:
-        print(y, file=fout)
+    # with open('our_y.bin', 'wb') as fout:
+    #     pickle.dump(y, fout)
 
-    for t in range(s):
-        dwr.fit_weight(X, NP, y)
+    with open('our_X.bin', 'rb') as fin:
+        X = pickle.load(fin)
 
-        dwr.fit_MLP(X, NP, y)
-        while True:
-            pass
+    with open('our_y.bin', 'rb') as fin:
+        y = pickle.load(fin)
+
+    with open('our_NP.bin', 'rb') as fin:
+        NP = pickle.load(fin)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+
+    res_best = 0.0
+    total_time = 0.0
+
+    kargs = params.random_args(ps)
+    base_params = [kargs[p] for p in ps]
+
+    with tf.Session(config=config) as sess:    
+        for t in range(s):
+            start_time = time.time()
+
+            dwr.build_graph(len(X), 0.005, 0.001)
+
+            sess.run(tf.global_variables_initializer())
+
+            dwr.fit_weight(sess, X, NP, y)
+            dwr.fit_MLP(sess, X, NP, y)
+
+            importance = np.sum(np.absolute(dwr.importance), axis=-1)
+            rank = np.argsort(-importance)
+
+            best_params = copy.deepcopy(base_params)
+
+            for id in rank:
+                if id < len(ps):
+                    best_performance = 0.
+                    curr_params = copy.deepcopy(best_params)
+
+                    bound = params.get_bound([ps[id]])[0]
+                    for param in np.linspace(bound[0], bound[1], 1000):
+                        curr_params[id] = param
+                        curr_performance = dwr.inference(sess, [curr_params], [o_wne])[0][0]
+
+                        if curr_performance > best_performance:
+                            best_performance = curr_performance
+                            best_params = copy.deepcopy(curr_params)
+                    
+                    print(best_params)
+            
+            kargs = params.random_args(known_args=params.convert_dict(dict(zip(ps, best_params))))
+            res_temp = get_result(dataset_name, target_model, task, kargs, '')
+            X.append(best_params)
+            NP.append(o_wne)
+            y.append(res_temp)
+            if res_temp > res_best:
+                res_best = res_temp
+                X_best = best_params
+                base_params = best_params
+                
+
+            end_time = time.time()
+            total_time += end_time - start_time
+            info.append([res_temp, total_time])
+            print('iters: {}/{}, params: {}, res: {}, time: {:.4f}s'.format(t, s, best_params, res_temp, total_time))
+
+    if debug:
+        print('final result: {}, time: {:.4f}s'.format(res_best, total_time))
+        return X_best, res_best, info
+    return X_best, res_best
 
 def mle_k(dataset_name, target_model, task='classification', method='mle', sampled_number=10, without_wne=False, k=16, s=0, print_iter=10, debug=False):
     X = []
