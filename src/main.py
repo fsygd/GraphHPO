@@ -216,67 +216,62 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
     X = []
     NP = []
     y = []
-    params = utils.Params(target_model)
+    params = utilssubgraph_t = -time.time().Params(target_model)
     ps = params.arg_names
     info = []
     X_t, res_t = None, -1.0
+    getting_sampled_result_time = 0.0
 
-    # sim = []
-    # if method == 'dds':
-    #     o_wne = get_wne(dataset_name, '', method=method, cache=True)
-    #     for t in range(sampled_number):
-    #         wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
-    #         sim.append(get_graph_feature.calc_similarity(o_wne, wne))
-    #     total = sum(sim)
-    #     sim = [x / total for x in sim]
-    #     times = [int(sampled_number * k * x) for x in sim]
-    #     rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
-    #     rank = np.argsort(np.array(rem))
-    #     for x in rank[-(sampled_number * k - sum(times)):]:
-    #         times[x] += 1
-    #     assert sum(times) == sampled_number * k
+    sim = []
+    if method == 'dds':
+        o_wne = get_wne(dataset_name, '', method=method, cache=True)
+        for t in range(sampled_number):
+            wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+            sim.append(get_graph_feature.calc_similarity(o_wne, wne))
+        total = sum(sim)
+        sim = [x / total for x in sim]
+        times = [int(sampled_number * k * x) for x in sim]
+        rem = [sampled_number * k * x - int(sampled_number * k * x) for x in sim]
+        rank = np.argsort(np.array(rem))
+        for x in rank[-(sampled_number * k - sum(times)):]:
+            times[x] += 1
+        assert sum(times) == sampled_number * k
     
-    # for t in range(sampled_number):
-    #     wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
-    #     for v in range(times[t]):
-    #         kargs = params.random_args(ps)
-    #         res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
-    #         if without_wne:
-    #             X.append([kargs[p] for p in ps])
-    #         else:
-    #             X.append([kargs[p] for p in ps])
-    #             NP.append(wne)
-    #         if debug:
-    #             print('sample {}, {}/{}, kargs: {}, res: {}'.format(t, v, times[t], [kargs[p] for p in ps], res))
-    #         y.append(res)
+    for t in range(sampled_number):
+        b_t = time.time()
+        wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+        for v in range(times[t]):
+            kargs = params.random_args(ps)
+            res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
+            if without_wne:
+                X.append([kargs[p] for p in ps])
+            else:
+                X.append([kargs[p] for p in ps])
+                NP.append(wne)
+            if debug:
+                print('sample {}, {}/{}, kargs: {}, res: {}, time: {:.4f}s'.format(t, v, times[t], [kargs[p] for p in ps], res, time.time() - b_t))
+            y.append(res)
+            getting_sampled_result_time += time.time() - b_t
+    if debug:
+        print('total getting sampled result time: {:.4f}s'.format(getting_sampled_result_time))
     
     o_wne = get_wne(dataset_name, '', method=method, cache=True)
     dwr = utils.DWRRegressor(params.bound, o_wne)
 
-    np.set_printoptions(threshold=np.inf)
-    # with open('our_X.bin', 'wb') as fout:
-    #     pickle.dump(X, fout)
+    # with open('our_X.bin', 'rb') as fin:
+    #     X = pickle.load(fin)
 
-    # with open('our_NP.bin', 'wb') as fout:
-    #     pickle.dump(NP, fout)
+    # with open('our_y.bin', 'rb') as fin:
+    #     y = pickle.load(fin)
 
-    # with open('our_y.bin', 'wb') as fout:
-    #     pickle.dump(y, fout)
-
-    with open('our_X.bin', 'rb') as fin:
-        X = pickle.load(fin)
-
-    with open('our_y.bin', 'rb') as fin:
-        y = pickle.load(fin)
-
-    with open('our_NP.bin', 'rb') as fin:
-        NP = pickle.load(fin)
+    # with open('our_NP.bin', 'rb') as fin:
+    #     NP = pickle.load(fin)
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
 
     res_best = 0.0
-    total_time = 0.0
+    total_time = getting_sampled_result_time
 
     kargs = params.random_args(ps)
     base_params = [kargs[p] for p in ps]
@@ -328,6 +323,17 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
             total_time += end_time - start_time
             info.append([res_temp, total_time])
             print('iters: {}/{}, params: {}, res: {}, time: {:.4f}s'.format(t, s, best_params, res_temp, total_time))
+
+    np.set_printoptions(threshold=np.inf)
+    ts = 'lp' if task == 'link_predict' else 'cf'
+    with open('result/{}/our_X_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'wb') as fout:
+        pickle.dump(X, fout)
+
+    with open('result/{}/our_NP_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'wb') as fout:
+        pickle.dump(NP, fout)
+
+    with open('result/{}/our_y_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'wb') as fout:
+        pickle.dump(y, fout)
 
     if debug:
         print('final result: {}, time: {:.4f}s'.format(res_best, total_time))
@@ -386,6 +392,8 @@ def mle_k(dataset_name, target_model, task='classification', method='mle', sampl
         getting_sampled_result_time += time.time() - b_t
     if debug:
         print('total getting sampled result time: {:.4f}s'.format(getting_sampled_result_time))
+
+    total_t += getting_sampled_result_time
 
     for t in range(s):
         b_t = time.time()
