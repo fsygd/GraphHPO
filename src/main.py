@@ -216,7 +216,7 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
     X = []
     NP = []
     y = []
-    params = utilssubgraph_t = -time.time().Params(target_model)
+    params = utils.Params(target_model)
     ps = params.arg_names
     info = []
     X_t, res_t = None, -1.0
@@ -536,6 +536,7 @@ def main(args):
     if target_model == 'gcn':
         feature_path = 'data/{}/features.npz'.format(dataset_name)
     if target_model == 'sample':
+        print(dataset_path)
         G = utils.load_graph(dataset_path, label_path)
         b_t = time.time()
         split_graph(G, 'data/{}_0.8'.format(dataset_name), radio=0.8)
