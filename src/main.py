@@ -589,11 +589,11 @@ def main(args):
                 save_filename = 'result/{}/res_{}_{}_{}_{}.npz'.format(dataset_name, os.path.basename(sampled_dir), ts, m, target_model)
             np.savez(save_filename, res=res)
             print('Round {} of {} ended successfully.'.format(str(i), str(ks)))
-        print('final resul of', dataset_name, target_model, task, ms)
-        res_p = np.max(res[:,:,0], axis=-1)
-        res_t = np.sum(res[:,:,1], axis=-1)
-        idx = np.argmax(res_p)
-        print('final performance: {}, time: {} s'.format(str(res_p[idx]), str(res_t[idx])))
+            #with open('tmp_result.txt', 'w') as fout:
+            #    print(np.asarray(res), file=fout, flush=True)
+        print('final result of', ms, dataset_name, target_model, task)
+        #idx = np.argmax(res_p)
+        #print('final performance: {}, time: {} s'.format(str(res_p[idx]), str(res_t[idx])))
 
 
 if __name__ == '__main__':
