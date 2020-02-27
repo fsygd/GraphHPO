@@ -340,6 +340,62 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
         return X_best, res_best, info
     return X_best, res_best
 
+def dds_test(dataset_name, target_model, task, method, color):
+    print(dataset_name, target_model, task, method)
+    params = utils.Params(target_model)
+    ps = params.arg_names
+    if target_model == 'AROPE':
+        ps = ['1st order', '2nd order', '3rd order']
+    elif target_model == 'deepwalk':
+        ps = ['num walks', 'walk length', 'window size']
+    elif target_model == 'gcn':
+        ps = ['epochs', 'hidden1', 'learning rate', 'dropout', 'weight decay']
+    
+    o_wne = get_wne(dataset_name, '', method=method, cache=True)
+    dwr = utils.DWRRegressor(params.bound, o_wne)
+
+    ts = task
+
+    if not os.path.exists('result/{}/our_X_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model)):
+        print('result/{}/our_X_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'NOT FOUND!!!')
+        return
+
+    with open('result/{}/our_X_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'rb') as fin:
+        X = pickle.load(fin)
+
+    with open('result/{}/our_y_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'rb') as fin:
+        y = pickle.load(fin)
+
+    with open('result/{}/our_NP_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'rb') as fin:
+        NP = pickle.load(fin)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+
+    with tf.Session(config=config) as sess:
+        dwr.build_graph(len(X), 0.005, 0.001)
+        sess.run(tf.global_variables_initializer())
+        dwr.fit_weight(sess, X, NP, y)
+        dwr.fit_MLP(sess, X, NP, y)
+        importance = np.sum(np.absolute(dwr.importance), axis=-1)[:len(ps)]
+        importance /= np.sum(importance)
+        
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+    plt.figure(figsize=(8, 6), dpi=80)
+    ax = plt.subplot(1, 1, 1)
+    ax.bar(ps, importance, color=color, alpha=0.8)
+    ax.set_xlabel('parameter', fontsize=20)
+    ax.set_ylabel('weight', fontsize=20)
+    plt.grid()
+    plt.xticks(fontsize=20, rotation=17)
+    plt.yticks(fontsize=20)
+
+    plt.savefig(os.path.join('weight', 'weight_{}_{}_{}.pdf'.format(target_model, ts, dataset_name)), bbox_inches='tight')
+
+    print(dataset_name, target_model, ts, 'finished')
+
+
 def mle_k(dataset_name, target_model, task='classification', method='mle', sampled_number=10, without_wne=False, k=16, s=0, print_iter=10, debug=False):
     X = []
     y = []
@@ -356,7 +412,8 @@ def mle_k(dataset_name, target_model, task='classification', method='mle', sampl
     getting_sampled_result_time = 0.0
 
     sim = []
-    if method == 'mle_redispatch':
+
+    if method == 'mle':
         o_wne = get_wne(dataset_name, '', method=method, cache=True)
         for t in range(sampled_number):
             wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
@@ -536,12 +593,11 @@ def main(args):
     if target_model == 'gcn':
         feature_path = 'data/{}/features.npz'.format(dataset_name)
     if target_model == 'sample':
-        print(dataset_path)
         G = utils.load_graph(dataset_path, label_path)
         b_t = time.time()
         split_graph(G, 'data/{}_0.8'.format(dataset_name), radio=0.8)
         sampled_number = 10#int(np.sqrt(G.number_of_nodes()))
-        sample_graph(G, 'data/{}/sampled'.format(dataset_name), s_n=1000, times=5, with_test=with_test, feature_path=feature_path)
+        sample_graph(G, 'data/{}/sampled'.format(dataset_name), s_n=None, times=5, with_test=with_test, feature_path=feature_path)
         print('total sampling time: {:.4f}s'.format(time.time() - b_t))
         return 0
     ks = 5
@@ -566,6 +622,18 @@ def main(args):
                 X, y, info = mle_k(dataset_name, target_model, task, method=m, sampled_number=5, without_wne=False, k=5, s=10, debug=True)
             elif m == 'dds':
                 X, y, info = dds_k(dataset_name, target_model, task, method=m, sampled_number=5, k=5, debug=True)
+            elif m == 'dds_test':
+                methods = ['AROPE', 'AROPE', 'AROPE', 'AROPE', 'deepwalk', 'deepwalk', 'deepwalk', 'deepwalk', 'deepwalk', 'gcn']
+                tasks = ['cf', 'cf', 'cf', 'lp', 'cf', 'cf', 'cf', 'lp', 'lp', 'cf']
+                datasets = ['BlogCatalog', 'pubmed', 'Wikipedia', 'Wikipedia_0.8', 'BlogCatalog', 'pubmed', 'Wikipedia', 'BlogCatalog_0.8', 'Wikipedia_0.8', 'pubmed']
+                colors = ['r', 'y', 'g', 'c', 'b', 'm', 'navy', 'lime', 'tan', 'gold']
+                index = 9
+                method = methods[index]
+                task = tasks[index]
+                dataset = datasets[index]
+                ms = 'dds'
+                color = colors[index]
+                dds_test(dataset, method, task, ms, color)
             elif m == 'random_search':
                 X, y, info = random_search(dataset_name, target_model, task, k=10, debug=True, sampled_dir=sampled_dir)
             elif m == 'random_search_l':
@@ -589,11 +657,14 @@ def main(args):
                 save_filename = 'result/{}/res_{}_{}_{}_{}.npz'.format(dataset_name, os.path.basename(sampled_dir), ts, m, target_model)
             np.savez(save_filename, res=res)
             print('Round {} of {} ended successfully.'.format(str(i), str(ks)))
-            #with open('tmp_result.txt', 'w') as fout:
-            #    print(np.asarray(res), file=fout, flush=True)
-        print('final result of', ms, dataset_name, target_model, task)
-        #idx = np.argmax(res_p)
-        #print('final performance: {}, time: {} s'.format(str(res_p[idx]), str(res_t[idx])))
+            # with open('tmp.txt') as fout:
+            #     print(res)
+
+        print('final resul of', dataset_name, target_model, task, ms)
+        # res_p = np.max(res[:,:,0], axis=-1)
+        # res_t = np.sum(res[:,:,1], axis=-1)
+        # idx = np.argmax(res_p)
+        # print('final performance: {}, time: {} s'.format(str(res_p[idx]), str(res_t[idx])))
 
 
 if __name__ == '__main__':

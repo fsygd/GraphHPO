@@ -2,10 +2,10 @@
 #method = gcn
 #task = classification
 
-dataset = pubmed ### can be ['BlogCatalog', 'Wikipedia', 'pubmed']
-method = AROPE ### can be ['deepwalk', 'AROPE', 'gcn']
+dataset = BlogCatalog ### can be ['BlogCatalog', 'Wikipedia', 'pubmed']
+method = deepwalk ### can be ['deepwalk', 'AROPE', 'gcn']
 task = link_predict ###  can be ['link_predict', 'classification']
-ms = mle ### can be ['mle', 'mle_GFPC', 'mle_GFPC54', 'random_search', 'b_opt']
+ms = dds_test ### can be ['mle', 'mle_GFPC', 'mle_GFPC54', 'random_search', 'b_opt']
 ms_name = $(shell echo $(ms) | sed "s/ /_/g")
 #log_file = logs/l_$(dataset)_$(method)_$(task).log
 log_file = logs/l_$(dataset)_$(method)_$(task)_$(ms_name).log

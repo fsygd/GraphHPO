@@ -6,6 +6,8 @@ embedding_test/src/baseline/gcn/build
 embedding_test/src/baseline/gcn/dist
 embedding_test/src/baseline/gcn/gcn.egg-info
 models/
+figure/
+weight/
 
 *.pyc
 *.swp
@@ -13,3 +15,4 @@ models/
 *.log
 *.txt
 *.bin
+saving*.py
