@@ -237,9 +237,11 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
             times[x] += 1
         assert sum(times) == sampled_number * k
     
+    max_sim = 0.0
     for t in range(sampled_number):
         b_t = time.time()
         wne = get_wne(dataset_name, 'sampled/s{}'.format(t), method=method, cache=True)
+        tmp_performance = 0.0
         for v in range(times[t]):
             kargs = params.random_args(ps)
             res = get_result(dataset_name, target_model, task, kargs, 'sampled/s{}'.format(t))
@@ -252,6 +254,14 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
                 print('sample {}, {}/{}, kargs: {}, res: {}, time: {:.4f}s'.format(t, v, times[t], [kargs[p] for p in ps], res, time.time() - b_t))
             y.append(res)
             getting_sampled_result_time += time.time() - b_t
+
+            if res > tmp_performance:
+                tmp_performance = res
+                tmp_kargs = kargs
+        if sim[t] > max_sim:
+            max_sim = sim[t]
+            best_kargs = tmp_kargs
+
     if debug:
         print('total getting sampled result time: {:.4f}s'.format(getting_sampled_result_time))
     
@@ -266,6 +276,7 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
 
     # with open('our_NP.bin', 'rb') as fin:
     #     NP = pickle.load(fin)
+    tf.set_random_seed(0)
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -273,8 +284,8 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
     res_best = 0.0
     total_time = getting_sampled_result_time
 
-    kargs = params.random_args(ps)
-    base_params = [kargs[p] for p in ps]
+    # kargs = params.random_args(ps)
+    base_params = [best_kargs[p] for p in ps]
 
     with tf.Session(config=config) as sess:    
         for t in range(s):
@@ -334,6 +345,9 @@ def dds_k(dataset_name, target_model, task, method='dds', sampled_number=5, with
 
     with open('result/{}/our_y_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'wb') as fout:
         pickle.dump(y, fout)
+
+    with open('result/{}/our_importance_{}_{}_{}.bin'.format(dataset_name, ts, method, target_model), 'wb') as fout:
+        pickle.dump(importance, fout)
 
     if debug:
         print('final result: {}, time: {:.4f}s'.format(res_best, total_time))
@@ -569,7 +583,7 @@ def visualize_graph(output_dir, times=5):
 
 
 def main(args):
-    seed = None
+    seed = 0
     random.seed(seed)
     np.random.seed(seed)
     if len(args) == 0:
